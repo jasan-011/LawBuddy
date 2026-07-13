@@ -4,7 +4,7 @@ LawBuddy is an open-source, ultra-fast, zero-dependency desktop terminal enginee
 
 ---
 
-## 🚀 Key Technical Core Features
+## Key Technical Core Features
 
 * **3D Vector Synapse Mesh Engine:** Custom isometric matrix engine projecting dynamic legal modules ($X, Y, Z$) with zero external graphics library overhead.
 * **Instant Indian Legal Mapping:** Fine-tuned to translate complex laws—including the Bharatiya Nyaya Sanhita (BNS), Consumer Protection Act, and IT Act—into highly scannable, clear documentation.
@@ -12,7 +12,7 @@ LawBuddy is an open-source, ultra-fast, zero-dependency desktop terminal enginee
 
 ---
 
-## 💾 Installation & Setup Execution
+## Installation & Setup Execution
 
 ### 1. Clone the Code Packet
 ```bash
