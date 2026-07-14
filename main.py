@@ -9,6 +9,7 @@ import time
 import re
 import math
 import random
+import threading
 
 # 1. API Key Matrix Verification
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -25,37 +26,63 @@ Always answer strictly based on current valid Indian laws (e.g., Bharatiya Nyaya
 Format your answers cleanly using clear bullet points. Explain complex terms in simple words.
 You must not provide direct legal advice. Provide information only."""
 
-# 3. Secure Data Packet API Routing Protocol
+# 3. Secure Data Packet API Routing Protocol (With Auto-Failover)
 def ask_gemini(query, use_search):
     if not API_KEY:
         return "ERROR: Missing GEMINI_API_KEY environment variable. Run 'set GEMINI_API_KEY=your_key' in CMD first."
     
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+    # Fully upgraded to active model variants
+    models_to_try = [
+        "gemini-3.5-flash", 
+        "gemini-3.1-flash-lite"
+    ]
+    
     headers = {"Content-Type": "application/json", "x-goog-api-key": API_KEY}
-    payload = {
-        "contents": [{"parts": [{"text": query}]}],
-        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]}
-    }
-    if use_search:
-        payload["tools"] = [{"googleSearch": {}}]
+    
+    for model_index, model_name in enumerate(models_to_try):
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent"
+        
+        payload = {
+            "contents": [{"parts": [{"text": query}]}],
+            "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]}
+        }
+        if use_search:
+            payload["tools"] = [{"googleSearch": {}}]
 
-    max_retries = 3
-    delay = 2
-    for attempt in range(max_retries):
         try:
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(url, data=data, headers=headers, method="POST")
             with urllib.request.urlopen(req) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
                 return res_data["candidates"][0]["content"]["parts"][0]["text"]
+                
         except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < max_retries - 1:
-                time.sleep(delay)
-                delay *= 2
+            # Safely catch deprecated/overloaded endpoints to cascade to backup models
+            if (e.code in [404, 429, 503]) and model_index < len(models_to_try) - 1:
+                next_model = models_to_try[model_index + 1]
+                
+                # Render rerouting matrix trace log into terminal display window
+                chat_display.configure(state='normal')
+                chat_display.insert(
+                    tk.END, 
+                    f"\n[SYSTEM_NOTICE]: DEPLOYING COGNITIVE BRIDGE... MODEL '{model_name}' RETRIED WITH CODE {e.code}.\n[SYSTEM_RE-ROUTE]: DIVERTING PACKETS TO '{next_model}'...\n\n", 
+                    "bold_style"
+                )
+                chat_display.configure(state='disabled')
+                root.update()
+                
+                # Advance tracking index assignment loop
                 continue
-            return f"API Error {e.code}: {e.read().decode('utf-8')}"
+                
+            try:
+                error_msg = e.read().decode('utf-8')
+            except Exception:
+                error_msg = "Unknown API Error Context"
+            return f"API Error {e.code}: {error_msg}"
         except Exception as e:
             return f"Network Connection Failure: {str(e)}"
+            
+    return "ERROR: All cognitive server cores are currently unresponsive. Please check your network or API configurations."
 
 # 4. Sharp Markdown Processing Log Matrix
 def insert_markdown_text(widget, text):
@@ -80,27 +107,44 @@ def insert_markdown_text(widget, text):
     widget.see(tk.END)
 
 # 5. Core Application Execution Pipeline
-def send_message():
-    user_text = user_input.get().strip()
-    if not user_text:
+def handle_submit(event=None):
+    user_input_text = entry_box.get().strip()
+    if not user_input_text:
         return
         
+    # 1. Clear input box and display user message immediately
+    entry_box.delete(0, tk.END)
     chat_display.configure(state='normal')
-    chat_display.insert(tk.END, f"\n[USER_PROMPT]: {user_text}\n\n", "user_style")
+    chat_display.insert(tk.END, f"\n[USER]: {user_input_text}\n", "user_style")
+    
+    # 2. Show a dynamic matrix loading indicator so they know it's working
+    chat_display.insert(tk.END, "[SYSTEM]: COMPUTING RESPONSE VECTORS...\n", "bold_style")
     chat_display.configure(state='disabled')
-    user_input.delete(0, tk.END)
-    root.update()
+    chat_display.see(tk.END)
     
-    ai_response = ask_gemini(user_text, search_var.get())
+    # Read the search parameter toggle state directly from UI matrix
+    is_search_active = search_var.get()
     
+    # 3. Spawn a background thread for the API call so the GUI never lags
+    threading.Thread(target=async_api_worker, args=(user_input_text, is_search_active), daemon=True).start()
+
+def async_api_worker(query, use_search):
+    # Call your existing ask_gemini function (runs safely in background)
+    ai_response = ask_gemini(query, use_search=use_search)
+    
+    # Safely push the result back into the main GUI thread window
+    root.after(0, update_chat_ui, ai_response)
+
+def update_chat_ui(response_text):
     chat_display.configure(state='normal')
-    chat_display.insert(tk.END, "[ANALYSIS_RESPONSE]:\n", "bot_header_style")
+    chat_display.insert(tk.END, f"\n[LAWBUDDY]:\n", "bot_header_style")
     chat_display.configure(state='disabled')
-    
-    insert_markdown_text(chat_display, ai_response)
+    # Run the response through markdown layout processors
+    insert_markdown_text(chat_display, response_text)
     chat_display.configure(state='normal')
     chat_display.insert(tk.END, "\n" + "="*70 + "\n", "divider_style")
     chat_display.configure(state='disabled')
+    chat_display.see(tk.END)
 
 # 6. Dynamic Matrix Core Layout Framing
 # Left Column: Neural Synapse Analyzer
@@ -251,18 +295,21 @@ search_check = tk.Checkbutton(
 )
 search_check.pack(side=tk.LEFT, padx=(0, 15))
 
-user_input = tk.Entry(
+# FIXED: Standardized to entry_box variable to match handle_submit reference loop
+entry_box = tk.Entry(
     action_bar, font=("Courier New", 11), bg="#000000", fg="#00FF66", insertbackground="#00FF66",
     relief=tk.SOLID, bd=1, highlightthickness=1, highlightcolor="#00FF66", highlightbackground="#004411"
 )
-user_input.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=8, padx=5)
-user_input.bind("<Return>", lambda event: send_message())
+entry_box.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=8, padx=5)
+
+# FIXED: Correctly routes return key events to the submission pipeline handler
+entry_box.bind("<Return>", handle_submit)
 
 send_button = tk.Button(
     action_bar, text="[RUN ANALYSIS]", bg="#000000", fg="#00FF66",
     activebackground="#00FF66", activeforeground="#000000",
     font=("Courier New", 10, "bold"), relief=tk.SOLID, bd=1,
-    highlightthickness=1, command=send_message
+    highlightthickness=1, command=handle_submit
 )
 send_button.pack(side=tk.RIGHT, padx=5, ipady=5, ipadx=15)
 
@@ -276,7 +323,6 @@ Ready for entry assignment. Enter conceptual key parameters below to compile ana
 chat_display.configure(state='normal')
 chat_display.insert(tk.END, "[SYSTEM_NOTIFICATION]:\n", "bot_header_style")
 chat_display.configure(state='disabled')
-# FIXED: Passed both parameters to avoid the TypeError
 insert_markdown_text(chat_display, welcome_text)
 chat_display.configure(state='normal')
 chat_display.insert(tk.END, "\n" + "="*70 + "\n", "divider_style")
